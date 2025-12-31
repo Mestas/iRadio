@@ -38,7 +38,7 @@ def split_text(text: str, max_bytes: int = 1800) -> list[str]:
 
 
 # ----------- 2. 仅合成，不落盘 -----------
-# ----------- 新增：仅分段合成 WAV，不合并 -----------
+# ----------- 新增：仅分段合成 MP3，不合并 -----------
 def generate_segments_mp3(text: str, voice_type: int, base_name: str, voice_name: str):
     """
     每段 ≤1800 字节，输出 mp3（aue=6），不合并
@@ -47,7 +47,7 @@ def generate_segments_mp3(text: str, voice_type: int, base_name: str, voice_name
     client = init_baidu_tts()
     # 1=wav(带RIFF头)  3/4=裸pcm  6=mp3
     options = {'spd': 5, 'pit': 5, 'vol': 5, 'per': voice_type, 'aue': 6}
-    chunks = split_text(text, max_bytes=1500)
+    chunks = split_text(text, max_bytes=1400)
     if not chunks:
         st.error("拆分后没有有效段落！")
         return []
@@ -131,11 +131,6 @@ def show_login_page():
                     st.rerun()
                 else:
                     st.error("❌ 用户名或密码错误！")
-        
-        # st.markdown("---")
-        # st.info("💡 测试账户：")
-        # st.code("用户名: admin\n密码: admin")
-        # st.code("用户名: user\n密码: user123")
         
         with st.expander("🔒 安全提示"):
             st.markdown("""
@@ -251,33 +246,6 @@ def read_txt_file(filename):
         st.error(f"读取文件失败: {e}")
         return None
 
-# 使用百度TTS生成音频
-def generate_audio(text, voice_type, output_filename):
-    client = init_baidu_tts()
-    
-    options = {
-    'spd': 5,
-    'pit': 5,
-    'vol': 5,
-    'per': voice_type,
-    'aue': 4,          # 4 = wav（16k 16bit PCM）
-    # 其他可选：3=pcm（裸流），5=amr，6=mp3（默认）
-    }
-    
-    try:
-        result = client.synthesis(text, 'zh', 1, options)
-        if not isinstance(result, dict):
-            output_path = os.path.join(config.AUDIO_FILES_DIR, output_filename)
-            with open(output_path, 'wb') as f:
-                f.write(result)
-            return True
-        else:
-            st.error(f"语音合成失败: {result}")
-            return False
-    except Exception as e:
-        st.error(f"生成音频时出错: {e}")
-        return False
-
 # 获取音频文件的完整路径
 def get_audio_path(filename):
     return os.path.join(config.AUDIO_FILES_DIR, filename)
@@ -362,25 +330,6 @@ def show_tts_interface():
     with col2:
         voice_name = st.selectbox("选择音色", list(config.VOICE_OPTIONS.keys()), key="voice_selector")
         voice_type = config.VOICE_OPTIONS[voice_name]
-        
-        # if st.button("🎤 生成音频", type="primary"):
-        #     if selected_txt:
-        #         with st.spinner("正在生成音频..."):
-        #             content = read_txt_file(selected_txt)
-        #             if content:
-        #                 base_name = os.path.splitext(selected_txt)[0]
-        #                 output_filename = f"{base_name}_{voice_name}.mp3"
-                        
-        #                 if os.path.exists(os.path.join(config.AUDIO_FILES_DIR, output_filename)):
-        #                     st.info("⚠️ 该音频文件已存在！")
-        #                 else:
-        #                     output_path = os.path.join(config.AUDIO_FILES_DIR, output_filename)
-        #                     if generate_audio(content, voice_type, output_path):
-        #                         st.success(f"✅ 长音频生成成功: {output_filename}")
-        #                         st.balloons()
-        #                     else:
-        #                         st.error("❌ 长音频合成失败，请检查日志")
-        # with col2:
         if st.button("🎤 分段合成音频", type="primary"):
             with st.spinner("正在分段合成 MP3..."):
                 content = read_txt_file(selected_txt)
@@ -397,171 +346,124 @@ def show_tts_interface():
                         #                     file_name=f, mime='audio/mp3')
                     else:
                         st.error("分段合成失败")
-# 音频播放器界面
+#
+
 def show_player_interface():
     st.header("🎧 音频播放器")
-    
+
+    # ---------- 0. 歌单 ----------
     audio_files = get_audio_files()
     if not audio_files:
         st.warning(f"📁 请在 {config.AUDIO_FILES_DIR} 文件夹中添加音频文件")
         return
-    
-    playback_records = load_playback_records()
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        selected_audio = st.selectbox(
-            "选择音频文件", 
-            audio_files,
-            format_func=lambda x: f"🎵 {x}",
-            key="audio_selector"
-        )
-        
-        if selected_audio:
-            audio_path = get_audio_path(selected_audio)
-            
-            # 获取URL参数中的播放位置
-            current_position = get_playback_position_from_url()
-            
-            # 获取保存的播放位置
-            saved_position = playback_records.get(selected_audio, {}).get('last_position', 0)
-            
-            # 使用URL参数中的位置（如果存在），否则使用保存的位置
-            start_position = current_position if current_position > 0 else saved_position
-            
-            st.info(f"📍 当前播放位置: {start_position:.1f}秒")
-            
-            # 读取并播放音频
-            with open(audio_path, 'rb') as f:
-                audio_bytes = f.read()
-            
-            # 使用Streamlit的音频播放器，设置起始位置
-            st.audio(audio_bytes, format='audio/mp3', start_time=int(start_position))
-            
-            # 显示实时播放位置
-            st.markdown("### ⏱️ 实时播放位置")
-            st.markdown('<div id="live-time-display" style="font-size: 2rem; font-weight: 700; line-height: 1.2; margin: 0.5rem 0;">0.0秒</div>', unsafe_allow_html=True)
-            
-            # 插入JavaScript代码来更新播放位置
-            js_code = f"""
-            <script>
-            (function() {{
-                // 等待页面加载完成
-                setTimeout(function() {{
-                    const aud = window.parent.document.querySelector('audio');
-                    const timeDisplay = window.parent.document.getElementById('live-time-display');
-                    
-                    if (!aud || !timeDisplay) {{
-                        console.log('Audio or time display element not found');
-                        return;
-                    }}
-                    
-                    console.log('Audio element found:', aud);
-                    console.log('Time display element found:', timeDisplay);
-                    
-                    // 设置初始显示
-                    timeDisplay.textContent = '{start_position:.1f}秒';
-                    
-                    // 监听播放进度
-                    aud.addEventListener('timeupdate', function() {{
-                        const t = aud.currentTime;
-                        const tFixed = t.toFixed(1);
-                        
-                        // 更新显示
-                        if (timeDisplay) {{
-                            timeDisplay.textContent = tFixed + '秒';
-                        }}
-                        
-                        // 更新URL参数
-                        try {{
-                            const url = new URL(window.parent.location);
-                            url.searchParams.set('t_live', tFixed);
-                            window.parent.history.replaceState(null, null, url.toString());
-                        }} catch (e) {{
-                            console.log('Error updating URL:', e);
-                        }}
-                    }});
-                    
-                    // 监听播放结束
-                    aud.addEventListener('ended', function() {{
-                        try {{
-                            const url = new URL(window.parent.location);
-                            url.searchParams.set('t_live', '0');
-                            window.parent.history.replaceState(null, null, url.toString());
-                        }} catch (e) {{
-                            console.log('Error updating URL on ended:', e);
-                        }}
-                    }});
-                }}, 1000); // 延迟1秒执行，确保音频元素已加载
-            }})();
-            </script>
-            """
-            
-            st.components.v1.html(js_code, height=0)
-            
-            # 控制按钮
-            col_btn1, col_btn2, col_btn3 = st.columns(3)
-            
-            with col_btn1:
-                if st.button("💾 保存当前位置", key="save_position"):
-                    # 获取最新的播放位置
-                    latest_position = get_playback_position_from_url()
-                    if latest_position > 0:
-                        update_playback_record(selected_audio, position=latest_position)
-                        st.success(f"✅ 播放位置已保存: {latest_position:.1f}秒")
-                    else:
-                        st.warning("请先播放音频再保存位置")
-            
-            with col_btn2:
-                if st.button("⏮️ 重置位置", key="reset_position"):
-                    # 重置URL参数和记录
-                    update_playback_record(selected_audio, position=0)
-                    # 使用新的API设置查询参数
-                    st.query_params['t_live'] = '0'
-                    st.rerun()
-            
-            with col_btn3:
-                if st.button("✅ 标记完成", key="mark_complete"):
-                    latest_position = get_playback_position_from_url()
-                    update_playback_record(selected_audio, status="completed")
-                    st.success("音频已标记为完成！")
-            
-            # 显示播放记录
-            if selected_audio in playback_records:
-                record = playback_records[selected_audio]
-                st.info(f"""
-                📊 播放统计：
-                - 播放次数：{record['play_count']}
-                - 最后播放：{record['last_played'][:10]}
-                - 保存位置：{record['last_position']:.1f}秒
-                - 完成状态：{'✅ 已完成' if record.get('completed', False) else '⏸️ 进行中'}
-                """)
-    
-    with col2:
-        st.subheader("📊 播放统计")
-        
-        if selected_audio:
-            current_record = playback_records.get(selected_audio, {})
-            st.metric("播放次数", current_record.get('play_count', 0))
-            st.metric("保存位置", f"{current_record.get('last_position', 0):.1f}秒")
-            st.metric("完成状态", "✅ 已完成" if current_record.get('completed', False) else '⏸️ 进行中')
-        
-        st.subheader("📋 播放列表")
-        
-        playlist_data = []
-        for audio in audio_files:
-            record = playback_records.get(audio, {})
-            playlist_data.append({
-                '文件名': audio,
-                '播放次数': record.get('play_count', 0),
-                '最后播放': record.get('last_played', '从未')[:10] if record.get('last_played') else '从未',
-                '状态': '✅ 完成' if record.get('completed', False) else '⏸️ 进行中',
-                '位置': f"{record.get('last_position', 0):.1f}秒"
-            })
-        
-        df = pd.DataFrame(playlist_data)
-        st.dataframe(df, width='stretch')
+
+    # ---------- 1. 唯一数据源：URL ----------
+    query = st.query_params
+    curr = query.get("f", audio_files[0])
+    if curr not in audio_files:
+        curr = audio_files[0]
+
+    # ---------- 2. 下拉框 ----------
+    idx = audio_files.index(curr)
+    new_file = st.selectbox(
+        "选择音频文件",
+        audio_files,
+        index=idx,
+        key=f"audio_selector_{curr}"
+    )
+    if new_file != curr:                      # 用户手动切换
+        st.query_params["f"] = new_file
+        st.query_params["t_live"] = "0"
+
+    # ---------- 3. 上一曲 / 下一曲 ----------
+    def jump(step: int):
+        idx = audio_files.index(curr)
+        target = audio_files[(idx + step) % len(audio_files)]
+        st.query_params["f"] = target
+        st.query_params["t_live"] = "0"
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        st.button("⏮️ 上一曲", on_click=jump, args=(-1,))
+    with c2:
+        st.button("⏭️ 下一曲", on_click=jump, args=(1,))
+
+    # ---------- 4. 其余按钮 ----------
+    with c3:
+        if st.button("💾 保存当前位置"):
+            pos = get_playback_position_from_url()
+            if pos > 0:
+                update_playback_record(curr, position=pos)
+                st.success(f"✅ 位置已保存：{pos:.1f}秒")
+    with c4:
+        if st.button("🔁 重置位置"):
+            update_playback_record(curr, position=0)
+            st.query_params["t_live"] = "0"
+    with c5:
+        if st.button("✅ 标记完成"):
+            update_playback_record(curr, status="completed")
+            st.success("音频已标记为完成！")
+
+    # ---------- 5. 播放 ----------
+    audio_path = get_audio_path(curr)
+    st.audio(open(audio_path, "rb").read(), format="audio/mp3")
+
+    # ---------- 6. 记忆位置 ----------
+    records = load_playback_records()
+    jump_pos = get_playback_position_from_url() or records.get(curr, {}).get("last_position", 0)
+    js = f"""
+    <script>
+    (function(){{
+        const aud = parent.document.querySelector('audio');
+        if (!aud) return;
+        let jumped = false;
+        aud.addEventListener('play', () => {{
+            if (!jumped && {jump_pos} > 0) {{
+                aud.currentTime = {jump_pos};
+                jumped = true;
+            }}
+        }});
+        aud.addEventListener('timeupdate', () => {{
+            const t = aud.currentTime.toFixed(1);
+            const url = new URL(parent.location);
+            url.searchParams.set('t_live', t);
+            parent.history.replaceState(null, null, url);
+        }});
+        aud.addEventListener('ended', () => {{
+            const url = new URL(parent.location);
+            url.searchParams.set('t_live', '0');
+            parent.history.replaceState(null, null, url);
+        }});
+    }})();
+    </script>
+    """
+    st.components.v1.html(js, height=0)
+
+    # ---------- 7. 统计 ----------
+    record = records.get(curr, {})
+    st.caption(
+        f"播放次数：{record.get('play_count', 0)} | "
+        f"保存位置：{record.get('last_position', 0):.1f}秒 | "
+        f"状态：{'✅ 已完成' if record.get('completed') else '⏸️ 进行中'}"
+    )
+
+    # ---------- 8. 播放列表 ----------
+    st.subheader("📋 播放列表")
+    playlist_data = []
+    for audio in audio_files:
+        rec = records.get(audio, {})
+        playlist_data.append({
+            '文件名': audio,
+            '播放次数': rec.get('play_count', 0),
+            '最后播放': rec.get('last_played', '从未')[:10] if rec.get('last_played') else '从未',
+            '状态': '✅ 完成' if rec.get('completed', False) else '⏸️ 进行中',
+            '位置': f"{rec.get('last_position', 0):.1f}秒"
+        })
+    st.dataframe(pd.DataFrame(playlist_data), width='stretch')
+
+    # ---------- 9. 末尾：URL 变化 → rerun ----------
+    if st.query_params.get("f", audio_files[0]) != curr:
+        st.rerun()
 
 # 播放记录界面
 def show_playback_records():
@@ -684,17 +586,18 @@ def main():
         # 功能选择
         feature = st.radio(
             "选择功能",
-            ["文本转语音", "音频播放器", "播放记录"],
+            ["音频播放器", "播放记录", "文本转语音"],
             key="feature_selector"
         )
     
     # 主内容区域
-    if feature == "文本转语音":
-        show_tts_interface()
-    elif feature == "音频播放器":
+    
+    if feature == "音频播放器":
         show_player_interface()
     elif feature == "播放记录":
         show_playback_records()
+    elif feature == "文本转语音":
+        show_tts_interface()
 
 if __name__ == "__main__":
     main()
